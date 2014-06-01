@@ -1,6 +1,10 @@
-var common = exports;
-var path   = require('path');
-var ORM    = require('../');
+var common      = exports;
+var path        = require('path');
+var async       = require('async');
+var _           = require('lodash');
+var util        = require('util');
+var querystring = require('querystring');
+var ORM         = require('../');
 
 common.ORM = ORM;
 
@@ -12,8 +16,22 @@ common.isTravis = function() {
 	return Boolean(process.env.CI);
 };
 
-common.createConnection = function(cb) {
-	ORM.connect(this.getConnectionString(), cb);
+common.createConnection = function(opts, cb) {
+	ORM.connect(this.getConnectionString(opts), cb);
+};
+
+common.hasConfig = function (proto) {
+	var config;
+
+	if (common.isTravis()) return 'found';
+
+	try {
+		config = require("./config");
+	} catch (ex) {
+		return 'not-found';
+	}
+
+	return (config.hasOwnProperty(proto) ? 'found' : 'not-defined');
 };
 
 common.getConfig = function () {
@@ -26,265 +44,124 @@ common.getConfig = function () {
 				return { user: "postgres", host: "localhost", database: "orm_test" };
 			case 'sqlite':
 				return {};
-			default:
-				throw new Error("Unknown protocol");
-		}
-	} else {
-		return require("./config")[this.protocol()];
-	}
-};
-
-common.getConnectionString = function () {
-	var url;
-
-	if (common.isTravis()) {
-		switch (this.protocol()) {
-			case 'mysql':
-				return 'mysql://root@localhost/orm_test';
-			case 'postgres':
-			case 'redshift':
-				return 'postgres://postgres@localhost/orm_test';
-			case 'sqlite':
-				return 'sqlite://';
+			case 'mongodb':
+				return { host: "localhost", database: "test" };
 			default:
 				throw new Error("Unknown protocol");
 		}
 	} else {
 		var config = require("./config")[this.protocol()];
-
-		switch (this.protocol()) {
-			case 'mysql':
-				return 'mysql://' +
-				       (config.user || 'root') +
-				       (config.password ? ':' + config.password : '') +
-				       '@' + (config.host || 'localhost') +
-				       '/' + (config.database || 'orm_test');
-			case 'postgres':
-				return 'postgres://' +
-				       (config.user || 'postgres') +
-				       (config.password ? ':' + config.password : '') +
-				       '@' + (config.host || 'localhost') +
-				       '/' + (config.database || 'orm_test');
-			case 'redshift':
-				return 'redshift://' +
-				       (config.user || 'postgres') +
-				       (config.password ? ':' + config.password : '') +
-				       '@' + (config.host || 'localhost') +
-				       '/' + (config.database || 'orm_test');
-			case 'sqlite':
-				return 'sqlite://' + (config.pathname || "");
-			default:
-				throw new Error("Unknown protocol");
+		if (typeof config == "string") {
+			config = require("url").parse(config);
 		}
+		if (config.hasOwnProperty("auth")) {
+			if (config.auth.indexOf(":") >= 0) {
+				config.user = config.auth.substr(0, config.auth.indexOf(":"));
+				config.password = config.auth.substr(config.auth.indexOf(":") + 1);
+			} else {
+				config.user = config.auth;
+				config.password = "";
+			}
+		}
+		if (config.hostname) {
+			config.host = config.hostname;
+		}
+
+		return config;
 	}
-	return url;
 };
 
-common.getModelProperties = function () {
-	return {
-		name: { type: "text", defaultValue: "test_default_value" }
+common.getConnectionString = function (opts) {
+	var config   = this.getConfig();
+	var protocol = this.protocol();
+	var query;
+
+	_.defaults(config, {
+		user     : { postgres: 'postgres', redshift: 'postgres', mongodb: '' }[protocol] || 'root',
+		database : { mongodb:  'test'     }[protocol] || 'orm_test',
+		password : '',
+		host     : 'localhost',
+		pathname : '',
+		query    : {}
+	});
+	_.merge(config, opts || {});
+
+	query = querystring.stringify(config.query);
+
+	switch (protocol) {
+		case 'mysql':
+		case 'postgres':
+		case 'redshift':
+		case 'mongodb':
+			if (common.isTravis()) {
+				if (protocol == 'redshift') protocol = 'postgres';
+				return util.format("%s://%s@%s/%s?%s",
+					protocol, config.user, config.host, config.database, query
+				);
+			} else {
+				return util.format("%s://%s:%s@%s/%s?%s",
+					protocol, config.user, config.password,
+					config.host, config.database, query
+				).replace(':@','@');
+			}
+		case 'sqlite':
+			return util.format("%s://%s?%s", protocol, config.pathname, query);
+		default:
+			throw new Error("Unknown protocol " + protocol);
+	}
+};
+
+common.retry = function (before, run, until, done, args) {
+	if (typeof until === "number") {
+		var countDown = until;
+		until = function (err) {
+			if (err && --countDown > 0) return false;
+			return true;
+		};
+	}
+
+	if (typeof args === "undefined") args = [];
+
+	var handler = function (err) {
+		if (until(err)) return done.apply(this, arguments);
+		return runNext();
 	};
-};
 
-common.createModelTable = function (table, db, cb) {
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-			db.query("CREATE TEMPORARY TABLE " + table + " (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL)", cb);
-			break;
-		case "sqlite":
-			db.run("DROP TABLE IF EXISTS " + table, function () {
-				db.run("CREATE TABLE " + table + " (id INTEGER NOT NULL, name VARCHAR(100) NOT NULL, PRIMARY KEY(id))", cb);
-			});
-			break;
-		default:
-			db.query("CREATE TEMPORARY TABLE " + table + " (id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100) NOT NULL)", cb);
-			break;
-	}
-};
+	args.push(handler);
 
-common.createModel2Table = function (table, db, cb) {
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-			db.query("CREATE TEMPORARY TABLE " + table + " (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, assoc_id BIGINT NOT NULL)", cb);
-			break;
-		case "sqlite":
-			db.run("DROP TABLE IF EXISTS " + table, function () {
-				db.run("CREATE TEMPORARY TABLE " + table + " (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, assoc_id BIGINT NOT NULL)", cb);
-			});
-			break;
-		default:
-			db.query("CREATE TEMPORARY TABLE " + table + " (id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100) NOT NULL, assoc_id BIGINT NOT NULL)", cb);
-			break;
-	}
-};
-
-common.createKeysModelTable = function (table, db, keys, cb) {
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-			db.query("CREATE TEMPORARY TABLE " + table + " (" + keys.join(" BIGINT NOT NULL, ") + " BIGINT NOT NULL, name VARCHAR(100) NOT NULL, PRIMARY KEY (" + keys.join(", ") + "))", cb);
-			break;
-		case "sqlite":
-			db.run("DROP TABLE IF EXISTS " + table, function () {
-				db.run("CREATE TEMPORARY TABLE " + table + " (" + keys.join(" BIGINT NOT NULL, ") + " BIGINT NOT NULL, name VARCHAR(100) NOT NULL, PRIMARY KEY (" + keys.join(", ") + "))", cb);
-			});
-			break;
-		default:
-			db.query("CREATE TEMPORARY TABLE " + table + " (" + keys.join(" BIGINT NOT NULL, ") + " BIGINT NOT NULL, name VARCHAR(100) NOT NULL, PRIMARY KEY (" + keys.join(", ") + "))", cb);
-			break;
-	}
-};
-
-common.createModelAssocTable = function (table, assoc, db, cb) {
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-			db.query("CREATE TEMPORARY TABLE " + table + "_" + assoc + " (" + table + "_id BIGINT NOT NULL, " + assoc + "_id BIGINT NOT NULL, extra_field BIGINT)", cb);
-			break;
-		case "sqlite":
-			db.run("DROP TABLE IF EXISTS " + table + "_" + assoc, function () {
-				db.run("CREATE TABLE " + table + "_" + assoc + " (" + table + "_id INTEGER NOT NULL, " + assoc + "_id INTEGER NOT NULL, extra_field INTEGER)", cb);
-			});
-			break;
-		default:
-			db.query("CREATE TEMPORARY TABLE " + table + "_" + assoc + " (" + table + "_id BIGINT NOT NULL, " + assoc + "_id BIGINT NOT NULL, extra_field BIGINT)", cb);
-			break;
-	}
-};
-
-common.insertModelData = function (table, db, data, cb) {
-	var query = [], i;
-
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-		case "mysql":
-			query = [];
-
-			for (i = 0; i < data.length; i++) {
-				query.push(data[i].id + ", '" + data[i].name + "'");
-			}
-
-			db.query("INSERT INTO " + table + " VALUES (" + query.join("), (") + ")", cb);
-			break;
-		case "sqlite":
-			var pending = data.length;
-			for (i = 0; i < data.length; i++) {
-				db.run("INSERT INTO " + table + " VALUES (" + data[i].id + ", '" + data[i].name + "')", function () {
-					pending -= 1;
-
-					if (pending === 0) {
-						return cb();
-					}
-				});
-			}
-			break;
-	}
-};
-
-common.insertModel2Data = function (table, db, data, cb) {
-	var query = [], i;
-
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-		case "mysql":
-			query = [];
-
-			for (i = 0; i < data.length; i++) {
-				query.push(data[i].id + ", '" + data[i].name + "', " + data[i].assoc);
-			}
-
-			db.query("INSERT INTO " + table + " VALUES (" + query.join("), (") + ")", cb);
-			break;
-		case "sqlite":
-			var pending = data.length;
-			for (i = 0; i < data.length; i++) {
-				db.run("INSERT INTO " + table + " VALUES (" + data[i].id + ", '" + data[i].name + "', " + data[i].assoc + ")", function () {
-					pending -= 1;
-
-					if (pending === 0) {
-						return cb();
-					}
-				});
-			}
-			break;
-	}
-};
-
-common.insertKeysModelData = function (table, db, data, cb) {
-	var query = [], i, k, keys, vals, pending;
-
-	for (i = 0; i < data.length; i++) {
-		keys = [];
-		vals = [];
-
-		for (k in data[i]) {
-			keys.push(k);
-			vals.push(data[i][k]);
+	var runCurrent = function () {
+		if (run.length == args.length) {
+			return run.apply(this, args);
+		} else {
+			run.apply(this, args);
+			handler();
 		}
+	};
 
-		query.push("INSERT INTO " + table + " (" + keys.join(", ") + ") VALUES ('" + vals.join("', '") + "')");
-	}
-
-	pending = query.length;
-
-	for (i = 0; i < query.length; i++) {
-		switch (this.protocol()) {
-			case "postgres":
-			case "redshift":
-			case "mysql":
-				db.query(query[i], function () {
-					if (--pending === 0) {
-						return cb();
-					}
+	var runNext = function () {
+		try {
+			if (before.length > 0) {
+				before(function (err) {
+					if (until(err)) return done(err);
+					return runCurrent();
 				});
-				break;
-			case "sqlite":
-				db.run(query[i], function () {
-					if (--pending === 0) {
-						return cb();
-					}
-				});
-				break;
+			} else {
+				before();
+				runCurrent();
+			}
 		}
-	}
-};
+		catch (e) {
+			handler(e);
+		}
+	};
 
-common.insertModelAssocData = function (table, db, data, cb) {
-	var query = [], i;
-
-	switch (this.protocol()) {
-		case "postgres":
-		case "redshift":
-		case "mysql":
-			query = [];
-
-			for (i = 0; i < data.length; i++) {
-				if (data[i].length < 3) {
-					data[i].push(0);
-				}
-				query.push(data[i].join(", "));
-			}
-
-			db.query("INSERT INTO " + table + " VALUES (" + query.join("), (") + ")", cb);
-			break;
-		case "sqlite":
-			var pending = data.length;
-			for (i = 0; i < data.length; i++) {
-				if (data[i].length < 3) {
-					data[i].push(0);
-				}
-				db.run("INSERT INTO " + table + " VALUES (" + data[i].join(", ") + ")", function () {
-					pending -= 1;
-
-					if (pending === 0) {
-						return cb();
-					}
-				});
-			}
-			break;
+	if (before.length > 0) {
+		before(function (err) {
+			if (err) return done(err);
+			runNext();
+		});
+	} else {
+		before();
+		runNext();
 	}
 };

@@ -1,6 +1,9 @@
 ## Object Relational Mapping
 
-[![Build Status](https://secure.travis-ci.org/dresende/node-orm2.png?branch=master)](http://travis-ci.org/dresende/node-orm2) [![](https://badge.fury.io/js/orm.png)](https://npmjs.org/package/orm)
+[![Build Status](https://api.travis-ci.org/dresende/node-orm2.svg?branch=master)](http://travis-ci.org/dresende/node-orm2)
+[![](https://badge.fury.io/js/orm.svg)](https://npmjs.org/package/orm)
+[![](https://gemnasium.com/dresende/node-orm2.png)](https://gemnasium.com/dresende/node-orm2)
+[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=dresende&url=https://github.com/dresende/node-orm2&title=ORM&language=&tags=github&category=software)
 
 ## Install
 
@@ -8,20 +11,30 @@
 npm install orm
 ```
 
+## Node.js Version Support
+
+Tests are done using [Travis CI](https://travis-ci.org/) for node versions `0.6.x`, `0.8.x` and `0.10.x`. If you want you can run
+tests locally.
+
+```sh
+npm test
+```
+
 ## DBMS Support
 
-- MySQL
+- MySQL & MariaDB
 - PostgreSQL
 - Amazon Redshift
 - SQLite
+- MongoDB (beta, missing aggregation for now)
 
 ## Features
 
 - Create Models, sync, drop, bulk create, get, find, remove, count, aggregated functions
 - Create Model associations, find, check, create and remove
-- Define custom validations (several builtin validations, check instance properties before saving)
+- Define custom validations (several builtin validations, check instance properties before saving - see [enforce](http://github.com/dresende/node-enforce) for details)
 - Model instance caching and integrity (table rows fetched twice are the same object, changes to one change all)
-- Plugins: [MySQL FTS](http://dresende.github.io/node-orm-mysql-fts) , [Pagination](http://dresende.github.io/node-orm-paging)
+- Plugins: [MySQL FTS](http://dresende.github.io/node-orm-mysql-fts) , [Pagination](http://dresende.github.io/node-orm-paging) , [Transaction](http://dresende.github.io/node-orm-transaction), [Timestamps](http://github.com/SPARTAN563/node-orm-timestamps), [Migrations](https://github.com/locomote/node-migrate-orm2)
 
 ## Introduction
 
@@ -33,12 +46,12 @@ An example:
 var orm = require("orm");
 
 orm.connect("mysql://username:password@host/database", function (err, db) {
-	if (err) throw err;
+  if (err) throw err;
 
 	var Person = db.define("person", {
 		name      : String,
 		surname   : String,
-		age       : Number,
+		age       : Number, // FLOAT
 		male      : Boolean,
 		continent : [ "Europe", "America", "Asia", "Africa", "Australia", "Antartica" ], // ENUM type
 		photo     : Buffer, // BLOB/BINARY
@@ -50,7 +63,7 @@ orm.connect("mysql://username:password@host/database", function (err, db) {
 			}
 		},
 		validations: {
-			age: orm.validators.rangeNumber(18, undefined, "under-age")
+			age: orm.enforce.ranges.number(18, undefined, "under-age")
 		}
 	});
 
@@ -68,6 +81,11 @@ orm.connect("mysql://username:password@host/database", function (err, db) {
 });
 ```
 
+## Promises
+
+You can use the [promise enabled wrapper library](https://github.com/rafaelkaufmann/q-orm).
+
+
 ## Express
 
 If you're using Express, you might want to use the simple middleware to integrate more easily.
@@ -78,8 +96,9 @@ var orm = require('orm');
 var app = express();
 
 app.use(orm.express("mysql://username:password@host/database", {
-	define: function (db, models) {
+	define: function (db, models, next) {
 		models.person = db.define("person", { ... });
+		next();
 	}
 }));
 app.listen(80);
@@ -94,78 +113,21 @@ You can call `orm.express` more than once to have multiple database connections.
 will be joined together in `req.models`. **Don't forget to use it before `app.use(app.router)`, preferably right after your
 assets public folder(s).**
 
+## Examples
+
+See `examples/anontxt` for an example express based app.
+
+## Documentation
+
+Documentation is moving to the [wiki](https://github.com/dresende/node-orm2/wiki/).
+
 ## Settings
 
-Settings are used to store key value pairs. A settings object is stored on the global orm object and on each database connection.
-
-```js
-var orm = require("orm");
-
-orm.settings.set("some.deep.value", 123);
-
-orm.connect("....", function (err, db) {
-	// db.settings is a snapshot of the settings at the moment
-	// of orm.connect(). changes to it don't affect orm.settings
-
-	console.log(db.settings.get("some.deep.value")); // 123
-	console.log(db.settings.get("some.deep"));       // { value: 123 }
-});
-```
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Settings).
 
 ## Connecting
 
-First, add the correct driver to your `package.json`:
-
- driver                | dependency
-:----------------------|:---------------------------
- mysql                 | `"mysql" : "2.0.0-alpha7"`
- postgres<br/>redshift | `"pg": "~1.0.0",`
- sqlite                | `"sqlite3" : "2.1.5"`
-
-### Options
-
-You can pass in connection options either as a string:
-
-```js
-var orm = require("orm");
-
-orm.connect("mysql://username:password@host/database?pool=true", function (err, db) {
-	// ...
-});
-```
-
-**Note:** `pool` is only supported by mysql & postgres.
-
-Or as an object:
-
-```js
-var opts = {
-  database : "dbname",
-  protocol : "[mysql|postgres|redshift|sqlite]",
-  host     : "127.0.0.1",
-  port     : 3306,         // optional, defaults to database default
-  user     : "..",
-  password : "..",
-  query    : {
-    pool     : true|false,   // optional, false by default
-    debug    : true|false    // optional, false by default
-  }
-};
-orm.connect(opts, function (err, db) {
-	// ...
-});
-```
-
-You can also avoid passing a callback and just listen for the connect event:
-
-```js
-var orm = require("orm");
-var db  = orm.connect("mysql://username:password@host/database");
-
-db.on("connect", function (err, db) {
-	// ...
-});
-```
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Connecting-to-Database).
 
 ## Models
 
@@ -175,46 +137,11 @@ Models support behaviours for accessing and manipulating table data.
 
 ## Defining Models
 
-Call `define` on the database connection to setup a model. The name of the table and model is used as an identifier for the model on the database connection, so you can easily access the model later using the connection.
-
-```js
-var Person = db.define('person', {        // 'person' will be the table in the database as well as the model id
-	// properties
-	name    : String,                     // you can use native objects to define the property type
-	surname : { type: "text", size: 50 }  // or you can be specific and define aditional options
-}, {
-	// options (optional)
-});
-```
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Defining-Models).
 
 ### Properties
 
-#### Types
-
-
- Native   | String     | Native   | String
- :--------|:-----------|:---------|:---------
- String   | 'text'     | Date     | 'date '
- Number   | 'number'   | Object   | 'object'
- Boolean  | 'boolean'  | Buffer   | 'binary'
-          |            |  ---     | 'enum'
-
-#### Options
-
-##### [all types]
-* `required`: true marks the column as `NOT NULL`, false (default)
-* `defaultValue`: sets the default value for the field
-
-##### string
-* `size`: max length of the string
-
-##### number
-* `rational`: true (default) creates a FLOAT/REAL, false an INTEGER
-
-##### date
-* `time`: true (default) creates a DATETIME/TIMESTAMP, false a DATE
-
-Note that these may vary accross drivers.
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Model-Properties).
 
 ### Instance Methods
 
@@ -244,7 +171,7 @@ Are defined directly on the model.
 ```js
 var Person = db.define('person', {
     name    : String,
-    height  : { type: 'number', rational: false }
+    height  : { type: 'integer' }
 });
 Person.tallerThan = function(height, callback) {
     this.find({ height: orm.gt(height) }, callback);
@@ -295,40 +222,26 @@ module.exports = function (db, cb) {
 
 ## Synchronizing Models
 
-Models can create their underlying tables in the database. You may call Model.sync() on each Model to create the underlying table or you can call db.sync() at a connection level to create all tables for all models.
-
-```js
-// db.sync() can also be used
-Person.sync(function (err) {
-	!err && console.log("done!");
-});
-```
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Synching-and-Dropping-Models).
 
 ## Dropping Models
 
-If you want to drop a Model and remove all tables you can use the `.drop()` method.
-
-```js
-Person.drop(function (err) {
-	!err && console.log("person model no longer exists!");
-});
-```
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Synching-and-Dropping-Models).
 
 ## Advanced Options
 
 ORM2 allows you some advanced tweaks on your Model definitions. You can configure these via settings or in the call to `define` when you setup the Model.
 
-For example, each Model instance has a unique ID in the database. This table column is
-by default "id" but you can change it.
+For example, each Model instance has a unique ID in the database. This table column is added automatically, and called "id" by default.<br/>
+If you define your own `key: true` column, "id" will not be added:
 
 ```js
 var Person = db.define("person", {
-	name : String
-}, {
-	id   : "person_id"
+	personId : { type: 'serial', key: true },
+	name     : String
 });
 
-// or just do it globally..
+// You can also change the default "id" property name globally:
 db.settings.set("properties.primary_key", "UID");
 
 // ..and then define your Models
@@ -338,6 +251,15 @@ var Pet = db.define("pet", {
 ```
 
 **Pet** model will have 2 columns, an `UID` and a `name`.
+
+It's also possible to have composite keys:
+
+```js
+var Person = db.define("person", {
+	firstname : { type: 'string', key: true },
+	lastname  : { type: 'string', key: true }
+});
+```
 
 Other options:
 
@@ -349,20 +271,7 @@ Other options:
 
 ## Hooks
 
-If you want to listen for a type of event than occurs in instances of a Model, you can attach a function that
-will be called when that event happens.
-
-Currently the following events are supported:
-
-- `afterLoad` : (no parameters) Right after loading and preparing an instance to be used;
-- `beforeSave` : (no parameters) Right before trying to save;
-- `afterSave` : (bool success) Right after saving;
-- `beforeCreate` : (no parameters) Right before trying to save a new instance;
-- `afterCreate` : (bool success) Right after saving a new instance;
-- `beforeRemove` : (no parameters) Right before trying to remove an instance.
-- `afterRemove` : (bool success) Right after removing an instance;
-
-All hook function are called with `this` as the instance so you can access anything you want related to it.
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Model-Hooks).
 
 ## Finding Items
 
@@ -406,6 +315,8 @@ Person.find({ surname: "Doe" }, { offset: 2 }, function (err, people) {
 });
 ```
 
+You can also use raw SQL when searching. It's documented in the *Chaining* section below.
+
 ### Model.count([ conditions, ] cb)
 
 If you just want to count the number of items that match a condition you can just use `.count()` instead of finding all
@@ -437,7 +348,11 @@ Person.aggregate({ surname: "Doe" }).min("age").max("age").get(function (err, mi
 	console.log("The youngest Doe guy has %d years, while the oldest is %d", min, max);
 });
 ```
-Here's an example to illustrate how to use groupby:
+
+An `Array` of properties can be passed to select only a few properties. An `Object` is also accepted to define conditions.
+
+Here's an example to illustrate how to use `.groupBy()`:
+
 ```js
 //The same as "select avg(weight), age from person where country='someCountry' group by age;"
 Person.aggregate(["age"], { country: "someCountry" }).avg("weight").groupBy("age").get(function (err, stats) {
@@ -445,7 +360,12 @@ Person.aggregate(["age"], { country: "someCountry" }).avg("weight").groupBy("age
 });
 ```
 
-Possible aggregating functions:
+### Base `.aggregate()` methods
+
+- `.limit()`: you can pass a number as a limit, or two numbers as offset and limit respectively
+- `.order()`: same as `Model.find().order()`
+
+### Additional `.aggregate()` methods
 
 - `min`
 - `max`
@@ -453,11 +373,7 @@ Possible aggregating functions:
 - `sum`
 - `count` (there's a shortcut to this - `Model.count`)
 
-### Available options
-
-- `offset`: discards the first `N` elements
-- `limit`: although it can be passed as a direct argument, you can use it here if you prefer
-- `only`: if you don't want all properties, you can give an array with the list of properties you want
+There are more aggregate functions depending on the driver (Math functions for example).
 
 #### Chaining
 
@@ -469,6 +385,22 @@ Person.find({ surname: "Doe" }).limit(3).offset(2).only("name", "surname").run(f
     // returning only 'name' and 'surname' properties
 });
 ```
+If you want to skip just one or two properties, you can call `.omit()` instead of `.only`.
+
+Chaining allows for more complicated queries. For example, we can search by specifying custom SQL:
+```js
+Person.find({ age: 18 }).where("LOWER(surname) LIKE ?", ['dea%']).all( ... );
+```
+It's bad practice to manually escape SQL parameters as it's error prone and exposes your application to SQL injection.
+The `?` syntax takes care of escaping for you, by safely substituting the question mark in the query with the parameters provided.
+You can also chain multiple `where` clauses as needed.
+
+You can also `order` or `orderRaw`:
+```js
+Person.find({ age: 18 }).order('-name').all( ... );
+// see the 'Raw queries' section below for more details
+Person.find({ age: 18 }).orderRaw("?? DESC", ['age']).all( ... );
+```
 
 You can also chain and just get the count in the end. In this case, offset, limit and order are ignored.
 
@@ -479,6 +411,7 @@ Person.find({ surname: "Doe" }).count(function (err, people) {
 ```
 
 Also available is the option to remove the selected items.
+Note that a chained remove will not run any hooks.
 
 ```js
 Person.find({ surname: "Doe" }).remove(function (err) {
@@ -538,7 +471,30 @@ a few examples to describe it:
 { col1: orm.lt(123) } // `col1` < 123
 { col1: orm.lte(123) } // `col1` <= 123
 { col1: orm.between(123, 456) } // `col1` BETWEEN 123 AND 456
+{ col1: orm.not_between(123, 456) } // `col1` NOT BETWEEN 123 AND 456
 { col1: orm.like(12 + "%") } // `col1` like '12%'
+```
+
+#### Raw queries
+
+```js
+db.driver.execQuery("SELECT id, email FROM user", function (err, data) { ... })
+
+// You can escape identifiers and values.
+// For identifier substitution use: ??
+// For value substitution use: ?
+db.driver.execQuery(
+  "SELECT user.??, user.?? FROM user WHERE user.?? LIKE ? AND user.?? > ?",
+  ['id', 'name', 'name', 'john', 'id', 55],
+  function (err, data) { ... }
+)
+
+// Identifiers don't need to be scaped most of the time
+db.driver.execQuery(
+  "SELECT user.id, user.name FROM user WHERE user.name LIKE ? AND user.id > ?",
+  ['john', 55],
+  function (err, data) { ... }
+)
 ```
 
 ### Caching & Integrity
@@ -555,7 +511,9 @@ var Person = db.define('person', {
 	cache   : false
 });
 ```
+
 and also globally:
+
 ```js
 orm.connect('...', function(err, db) {
   db.settings.set('instance.cache', false);
@@ -632,98 +590,144 @@ Person.get(1, function (err, John) {
 
 ## Validations
 
-You can define validations for every property of a Model. You can have one or more validations for each property.
-You can also use the predefined validations or create your own.
-
-```js
-var Person = db.define("person", {
-	name : String,
-	age  : Number
-}, {
-	validations : {
-		name : orm.validators.rangeLength(1, undefined, "missing"), // "missing" is a name given to this validation, instead of default
-		age  : [ orm.validators.rangeNumber(0, 10), orm.validators.insideList([ 1, 3, 5, 7, 9 ]) ]
-	}
-});
-```
-
-The code above defines that the `name` length must be between 1 and undefined (undefined means any) and `age`
-must be a number between 0 and 10 (inclusive) but also one of the listed values. The example might not make sense
-but you get the point.
-
-When saving an item, if it fails to validate any of the defined validations you'll get an `error` object with the property
-name and validation error description. This description should help you identify what happened.
-
-```js
-var John = new Person({
-	name : "",
-	age : 20
-});
-John.save(function (err) {
-	// err.field = "name" , err.value = "" , err.msg = "missing"
-});
-```
-
-The validation stops after the first validation error. If you want it to validate every property and return all validation
-errors, you can change this behavior on global or local settings:
-
-```js
-var orm = require("orm");
-
-orm.settings.set("instance.returnAllErrors", true); // global or..
-
-orm.connect("....", function (err, db) {
-	db.settings.set("instance.returnAllErrors", true); // .. local
-
-	// ...
-
-	var John = new Person({
-		name : "",
-		age : 15
-	});
-	John.save(function (err) {
-		assert(Array.isArray(err));
-		// err[0].field = "name" , err[0].value = "" , err[0].msg = "missing"
-		// err[1].field = "age"  , err[1].value = 15 , err[1].msg = "out-of-range-number"
-		// err[2].field = "age"  , err[2].value = 15 , err[2].msg = "outside-list"
-	});
-});
-```
+See information in the [wiki](https://github.com/dresende/node-orm2/wiki/Model-Validations).
 
 ## Associations
 
 An association is a relation between one or more tables.
 
-## hasOne vs. hasMany
+### hasOne
 
-Since this topic brings some confusion to many people including myself, here's a list of the possibilities
-supported by both types of association.
+Is a **many to one** relationship. It's the same as **belongs to.**<br/>
+Eg: `Animal.hasOne('owner', Person)`.<br/>
+Animal can only have one owner, but Person can have many animals.<br/>
+Animal will have the `owner_id` property automatically added.
 
-- `hasOne` : it's a **Many-to-One** relationship. A.hasOne(B) means A will have one (or none) of B, but B can be
-  associated with many A;
-- `hasMany`: it's a **One-to-Many** relationship. A.hasMany(B) means A will have none, one or more of B. Actually
-  B will be associated with possibly many A but you don't have how to find it easily (see next);
-- `hasMany` + reverse: it's a **Many-to-Many** relationship. A.hasMany(B, { reverse: A }) means A can have none or
-  many B and also B can have none or many A. Accessors will be created in both models so you can manage them from
-  both sides.
+The following functions will become available:
+```js
+animal.getOwner(function..)         // Gets owner
+animal.setOwner(person, function..) // Sets owner_id
+animal.hasOwner(function..)         // Checks if owner exists
+animal.removeOwner()                // Sets owner_id to 0
+```
 
-If you have a relation of 1 to 0 or 1 to 1, you should use `hasOne` association. This assumes a column in the model that has the id of the other end of the relation.
+**Chain Find**
+
+The hasOne association is also chain find compatible. Using the example above, we can do this to access a new instance of a ChainFind object:
+
+```js
+Animal.findByOwner({ /* options */ })
+```
+
+**Reverse access**
+
+```js
+Animal.hasOne('owner', Person, {reverse: 'pets'})
+```
+
+will add the following:
+
+```js
+// Instance methods
+person.getPets(function..)
+person.setPets(cat, function..)
+
+// Model methods
+Person.findByPets({ /* options */ }) // returns ChainFind object
+```
+
+### hasMany
+
+Is a **many to many** relationship (includes join table).<br/>
+Eg: `Patient.hasMany('doctors', Doctor, { why: String }, { reverse: 'patients', key: true })`.<br/>
+Patient can have many different doctors. Each doctor can have many different patients.
+
+This will create a join table `patient_doctors` when you call `Patient.sync()`:
+
+ column name | type
+ :-----------|:--------
+ patient_id  | Integer (composite key)
+ doctor_id   | Integer (composite key)
+ why         | varchar(255)
+
+The following functions will be available:
+
+```js
+patient.getDoctors(function..)           // List of doctors
+patient.addDoctors(docs, function...)    // Adds entries to join table
+patient.setDoctors(docs, function...)    // Removes existing entries in join table, adds new ones
+patient.hasDoctors(docs, function...)    // Checks if patient is associated to specified doctors
+patient.removeDoctors(docs, function...) // Removes specified doctors from join table
+
+doctor.getPatients(function..)
+etc...
+
+// You can also do:
+patient.doctors = [doc1, doc2];
+patient.save(...)
+```
+
+To associate a doctor to a patient:
+
+```js
+patient.addDoctor(surgeon, {why: "remove appendix"}, function(err) { ... } )
+```
+
+which will add `{patient_id: 4, doctor_id: 6, why: "remove appendix"}` to the join table.
+
+#### getAccessor
+
+This accessor in this type of association returns a `ChainFind` if not passing a callback. This means you can
+do things like:
+
+```js
+patient.getDoctors().order("name").offset(1).run(function (err, doctors), {
+	// ... all doctors, ordered by name, excluding first one
+});
+```
+
+### extendsTo
+
+If you want to split maybe optional properties into different tables or collections. Every extension will be in a new table,
+where the unique identifier of each row is the main model instance id. For example:
+
+```js
+var Person = db.define("person", {
+    name : String
+});
+var PersonAddress = Person.extendsTo("address", {
+    street : String,
+    number : Number
+});
+```
+
+This will create a table `person` with columns `id` and `name`. The extension will create a table `person_address` with
+columns `person_id`, `street` and `number`. The methods available in the `Person` model are similar to an `hasOne`
+association. In this example you would be able to call `.getAddress(cb)`, `.setAddress(Address, cb)`, ..
+
+**Note:** you don't have to save the result from `Person.extendsTo`. It returns an extended model. You can use it to query
+directly this extended table (and even find the related model) but that's up to you. If you only want to access it using the
+original model you can just discard the return.
+
+### Examples & options
+
+If you have a relation of 1 to n, you should use `hasOne` (belongs to) association.
 
 ```js
 var Person = db.define('person', {
-	name : String
+    name : String
 });
 var Animal = db.define('animal', {
-	name : String
+    name : String
 });
-Animal.hasOne("owner", Person); // assumes column 'owner_id' in 'animal' table
+Animal.hasOne("owner", Person); // creates column 'owner_id' in 'animal' table
 
 // get animal with id = 123
-Animal.get(123, function (err, Foo) {
-	// Foo is the animal model instance, if found
-	Foo.getOwner(function (err, John) {
-		// if Foo animal has really an owner, John points to it
-	});
+Animal.get(123, function (err, animal) {
+    // animal is the animal model instance, if found
+    animal.getOwner(function (err, person) {
+        // if animal has really an owner, person points to it
+    });
 });
 ```
 
@@ -735,53 +739,40 @@ Animal.hasOne("owner", Person, { required: true });
 If you prefer to use another name for the field (owner_id) you can change this parameter in the settings.
 
 ```js
-db.settings.set("properties.association_key", "id_{name}"); // {name} will be replaced by 'owner' in this case
+db.settings.set("properties.association_key", "{field}_{name}"); // {name} will be replaced by 'owner' and {field} will be replaced by 'id' in this case
 ```
 
-**Note: This has to be done prior to the association creation.**
+**Note: This has to be done before the association is specified.**
 
-For relations of 1 to many you have to use `hasMany` associations. This assumes the existence of a separate join table that has 2 columns, each referencing the table in the association. Ideally, these would be foreign key relationships in your database.
+The `hasMany` associations can have additional properties in the association table.
 
 ```js
 var Person = db.define('person', {
-	name : String
-});
-Person.hasMany("friends"); // omitting the other Model, it will assume self model
-
-Person.get(123, function (err, John) {
-	John.getFriends(function (err, friends) {
-		// assumes table person_friends with columns person_id and friends_id
-	});
-});
-```
-
-The `hasMany` associations can have additional properties that are assumed to be in the association table.
-
-```js
-var Person = db.define('person', {
-	name : String
+    name : String
 });
 Person.hasMany("friends", {
     rate : Number
-});
+}, {}, { key: true });
 
 Person.get(123, function (err, John) {
-	John.getFriends(function (err, friends) {
-		// assumes rate is another column on table person_friends
-		// you can access it by going to friends[N].extra.rate
-	});
+    John.getFriends(function (err, friends) {
+        // assumes rate is another column on table person_friends
+        // you can access it by going to friends[N].extra.rate
+    });
 });
 ```
 
-If you prefer you can activate `autoFetch`. This way associations are automatically fetched when you get or find instances of a model.
+If you prefer you can activate `autoFetch`.
+This way associations are automatically fetched when you get or find instances of a model.
 
 ```js
 var Person = db.define('person', {
-	name : String
+  name : String
 });
 Person.hasMany("friends", {
     rate : Number
 }, {
+    key       : true, // Turns the foreign keys in the join table into a composite key
     autoFetch : true
 });
 
@@ -794,12 +785,14 @@ You can also define this option globally instead of a per association basis.
 
 ```js
 var Person = db.define('person', {
-	name : String
+    name : String
 }, {
     autoFetch : true
 });
 Person.hasMany("friends", {
     rate : Number
+}, {
+  key: true
 });
 ```
 
@@ -809,39 +802,39 @@ Confusing? Look at the next example.
 
 ```js
 var Pet = db.define('pet', {
-	name : String
+    name : String
 });
 var Person = db.define('person', {
-	name : String
+    name : String
 });
 Pet.hasOne("owner", Person, {
-	reverse : "pets"
+    reverse : "pets"
 });
 
 Person(4).getPets(function (err, pets) {
-	// although the association was made on Pet,
-	// Person will have an accessor (getPets)
-	//
-	// In this example, ORM will fetch all pets
-	// whose owner_id = 4
+    // although the association was made on Pet,
+    // Person will have an accessor (getPets)
+    //
+    // In this example, ORM will fetch all pets
+    // whose owner_id = 4
 });
 ```
 
-This makes even more sense when having `hasMany` associations since you can manage the Many-to-Many associations
-from both sides.
-
+This makes even more sense when having `hasMany` associations since you can manage the *many to many*
+associations from both sides.
 
 ```js
 var Pet = db.define('pet', {
-	name : String
+    name : String
 });
 var Person = db.define('person', {
-	name : String
+    name : String
 });
 Person.hasMany("pets", Pet, {
     bought  : Date
 }, {
-	reverse : "owners"
+    key     : true,
+    reverse : "owners"
 });
 
 Person(1).getPets(...);
